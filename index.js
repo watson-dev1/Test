@@ -1,30 +1,141 @@
+
+/* * ANUWH MIN Main Server
+ * Copyright © 2025 Anuga Senithu
+ * Owner: Anuga Senithu
+ * GitHub: https://github.com/cyberxdevsofficial
+ * WhatsApp: https://wa.me/94710695082*/
+
 const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const cors = require('cors');
+const helmet = require('helmet');
+const compression = require('compression');
+const path = require('path');
+const chalk = require('chalk');
+
+const config = require('./config');
+const { connectDatabase } = require('./database/connection');
+const { generalLimiter } = require('./middleware/rateLimiter');
+
+// Import routes
+const authRoutes = require('./routes/auth');
+const botRoutes = require('./routes/bot');
+const adminRoutes = require('./routes/admin');
+const userRoutes = require('./routes/user');
+
 const app = express();
-__path = process.cwd()
-const bodyParser = require("body-parser");
-const PORT = process.env.PORT || 8000;
-let code = require('./pair'); 
-
-require('events').EventEmitter.defaultMaxListeners = 500;
-
-app.use('/code', code);
-app.use('/pair', async (req, res, next) => {
-    res.sendFile(__path + '/pair.html')
-});
-app.use('/', async (req, res, next) => {
-    res.sendFile(__path + '/main.html')
+const server = http.createServer(app);
+const io = socketIo(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
 });
 
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+// Global middleware
+app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false
+}));
+app.use(compression());
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(generalLimiter);
 
-app.listen(PORT, () => {
-    console.log(`
-Don't Forget To Give Star ‼️
+// Static files
+app.use(express.static(path.join(__dirname, 'public')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-𝙻𝙴𝙶𝙸𝙾𝙽 𝙾𝙵 𝙳𝙾𝙾𝙼 𝙼𝙸𝙽𝙸 𝙱𝙾𝚃
+// Socket.IO for real-time updates
+global.io = io;
 
-Server running on http://localhost:` + PORT)
+// API Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/bot', botRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/user', userRoutes);
+
+// Serve main application
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
+
+// 404 handler
+app.use('*', (req, res) => {
+    res.status(404).json({
+        success: false,
+        message: 'Route not found'
+    });
+});
+
+// Global error handler
+app.use((error, req, res, next) => {
+    console.error(chalk.red('Server Error:'), error);
+    res.status(500).json({
+        success: false,
+        message: 'Internal server error'
+    });
+});
+
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+    console.log(chalk.blue('Client connected:'), socket.id);
+    
+    socket.on('disconnect', () => {
+        console.log(chalk.yellow('Client disconnected:'), socket.id);
+    });
+});
+
+// Start server
+const startServer = async () => {
+    try {
+        // Connect to database
+        await connectDatabase();
+        
+        // Start server
+        const PORT = config.PORT;
+        server.listen(PORT, () => {
+            console.log(chalk.green(`
+╔══════════════════════════════════════════════════════════════╗
+║                        ANUWH MDMINI v${config.APP_VERSION}                        ║
+║                  Advanced WhatsApp Bot System                 ║
+║                                                              ║
+║  🚀 Server running on: http://localhost:${PORT}                ║
+║  📊 Database: Connected                                      ║
+║  🔒 Security: Enabled                                        ║
+║  ⚡ Real-time: Socket.IO Active                             ║
+║                                                              ║
+║  Copyright © ${config.COPYRIGHT.YEAR} ${config.COPYRIGHT.COMPANY}                    ║
+║  Owner: ${config.COPYRIGHT.OWNER}                                      ║
+║  GitHub: ${config.COPYRIGHT.GITHUB}
+╚══════════════════════════════════════════════════════════════╝
+            `));
+        });
+    } catch (error) {
+        console.error(chalk.red('Failed to start server:'), error);
+        process.exit(1);
+    }
+};
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+    console.log(chalk.yellow('SIGTERM received, shutting down gracefully...'));
+    server.close(() => {
+        console.log(chalk.green('Server closed'));
+        process.exit(0);
+    });
+});
+
+process.on('SIGINT', () => {
+    console.log(chalk.yellow('SIGINT received, shutting down gracefully...'));
+    server.close(() => {
+        console.log(chalk.green('Server closed'));
+        process.exit(0);
+    });
+});
+
+startServer();
 
 module.exports = app;
